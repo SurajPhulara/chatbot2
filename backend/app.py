@@ -32,11 +32,27 @@ class ResponseStructure(BaseModel):
     next_reply: str
     metadata:str
     reason:str
+    # internet_search_required: bool = Field(default=False, description="Flag indicating if internet search is required")
+    # online_search_query: Optional[str] = Field(default=None, description="Query to search online for better GPT-4 responses")
+
+
+# Define your model for parsing the output
+class InternetSearchRequired(BaseModel):
     internet_search_required: bool = Field(default=False, description="Flag indicating if internet search is required")
     online_search_query: Optional[str] = Field(default=None, description="Query to search online for better GPT-4 responses")
 
+
+
+
 app = Flask(__name__)
 CORS(app)
+
+# Configure cache
+app.config['CACHE_TYPE'] = 'SimpleCache'  # Change to 'redis' if using Redis
+app.config['CACHE_DEFAULT_TIMEOUT'] = 1800  # Timeout in seconds (1800 seconds = 30 minutes)
+
+cache = Cache(app)
+
 
 
 app.secret_key = 'your_secret_key'  # Replace with a secure key
@@ -247,7 +263,7 @@ def chat():
         messages.append({"role": role, "content": content})
     
     try:
-        current_json, next_reply, options = call_openai_api(messages, flatten_json(current_json))
+        current_json, next_reply, options = call_openai_api(messages, flatten_json(current_json), user_input)
 
         # Append the response to chat history
         chat_history.append(f"Bot: {next_reply}")
@@ -274,9 +290,10 @@ def chat():
 
 
 
-def call_openai_api(chat_history, current_json):
+def call_openai_api(chat_history, current_json, user_input):
+    print("/////////////////////////////",chat_history,"//////////////////////////")
 
-    model = ChatOpenAI(api_key=openai_api_key, temperature=0.5, model="gpt-4")
+    model = ChatOpenAI(api_key=openai_api_key, temperature=1, model="gpt-4o")
     # model = ChatOpenAI(api_key=openai_api_key, temperature=0)
 
     # Define the parser
@@ -460,8 +477,7 @@ def call_openai_api(chat_history, current_json):
             16. At the end of the chat confirm and clarify with the user the interested you have collected so far. and if the interests are not collected then ask user his interests.
             17. if the user is normally greeting like saying hi hello then greet them normally and introduce yourself (intro is important) say You are a travel assistant chatbot named Travel.AI, designed to help users plan their trips and provide travel-related information and how you need some info to do that.
             18. Ensure all fields are answered before saying "Thank you, I have all I need for now."
-            19. if the user asks something that you dont have enough information to answer or you thing you can answer better if you have internet search results then in your response give "internet_search_required": true else set it to false always. Additionally, if you decide to perform an internet search, provide a meaningful value for "online_search_query" that reflects the specific information you intend to search for As i will search this query "online_search_query" online and call make this gpt call again with the search results.
-            20. finally the most important thing is that your order and time of asking each question should not be ambigious. it should make sense, if the user is asking about a place or any other thing then resolve that first and ask the user if he have any more query. and only after the user's query has been answered then from there keeping the context in mind ask the next question in a relevant wany. dont just answer and ask the next question that is irrelevant. interact just like an professional customer support helping and guiding the user along
+            19. finally the most important thing is that your order and time of asking each question should not be ambigious. it should make sense, if the user is asking about a place or any other thing then resolve that first and ask the user if he have any more query. and only after the user's query has been answered then from there keeping the context in mind ask the next question in a relevant wany. dont just answer and ask the next question that is irrelevant. interact just like an professional customer support helping and guiding the user along
 
             always ask the questions in a logically sensible way
 
@@ -481,8 +497,7 @@ def call_openai_api(chat_history, current_json):
                     "inferences": [],
                     "next_reply": "Hi there! It's nice to meet you. I'm Travel.AI, your travel assistant. I'm here to help you plan your trip. Could you please tell me where you would like to go first?",
                     "metadata": "firstDestination",
-                    "reason": "The user greeted the assistant. The assistant introduced itself and asked the first question to start the travel planning process.",
-                    "internet_search_required": false
+                    "reason": "The user greeted the assistant. The assistant introduced itself and asked the first question to start the travel planning process."
                 }}
 
                 User: I want to visit several cities in Europe.
@@ -490,8 +505,7 @@ def call_openai_api(chat_history, current_json):
                     "inferences": [],
                     "next_reply": "Great! Can you list the cities you plan to visit?",
                     "metadata": "none",
-                    "reason": "User mentioned visiting several cities, asking for a list.",
-                    "internet_search_required": false
+                    "reason": "User mentioned visiting several cities, asking for a list."
                 }}
 
                 User: Paris, Rome, and Barcelona.
@@ -501,8 +515,7 @@ def call_openai_api(chat_history, current_json):
                     ],
                     "next_reply": "Do you want to manually sequence the cities you will visit, or should we auto-sequence it?",
                     "metadata": "none",
-                    "reason": "User provided list of cities: Paris, Rome, Barcelona.",
-                    "internet_search_required": false
+                    "reason": "User provided list of cities: Paris, Rome, Barcelona."
                 }}
 
                 User: Let's auto-sequence it.
@@ -512,8 +525,7 @@ def call_openai_api(chat_history, current_json):
                     ],
                     "next_reply": "What is your origin city for this trip?",
                     "metadata": "none",
-                    "reason": "User chose auto-sequencing.",
-                    "internet_search_required": false
+                    "reason": "User chose auto-sequencing."
                 }}
 
                 User: I will start from New York.
@@ -523,8 +535,7 @@ def call_openai_api(chat_history, current_json):
                     ],
                     "next_reply": "How would you describe your budget for this trip? Please choose from: 'on a tight budget', 'comfortable spending', 'happy to spend for a luxurious vacation'.",
                     "metadata": "budget",
-                    "reason": "User mentioned New York as the origin city.",
-                    "internet_search_required": false
+                    "reason": "User mentioned New York as the origin city."
                 }}
 
                 User: Comfortable spending.
@@ -534,8 +545,7 @@ def call_openai_api(chat_history, current_json):
                     ],
                     "next_reply": "Do you have any dietary preferences or restrictions? Please choose from: 'any', 'Middle-eastern', 'indian', 'asian', 'european', 'mexican', 'vegetarian', 'south american', 'vegan', 'seafood', 'fast food', 'cafe', 'dessert', 'healthy', 'bar/pub', 'barbeque', 'pizza'.",
                     "metadata": "food",
-                    "reason": "User chose 'comfortable spending' as budget.",
-                    "internet_search_required": false
+                    "reason": "User chose 'comfortable spending' as budget."
                 }}
 
                 User: I prefer European cuisine.
@@ -545,8 +555,7 @@ def call_openai_api(chat_history, current_json):
                     ],
                     "next_reply": "What is your preferred start date and time of your trip?",
                     "metadata": "none",
-                    "reason": "User prefers European cuisine.",
-                    "internet_search_required": false
+                    "reason": "User prefers European cuisine."
                 }}
 
 
@@ -568,10 +577,7 @@ def call_openai_api(chat_history, current_json):
                 "inferences": [ your inferences based on th euser input],
                 "next_reply": "next reply to give to the user",
                 "metadata": "this will contain the field name of the question you are asking in the next_reply if that field has value options to choose from. if you are suggestion and not asking any question from the current json then just state 'none' here", also this value should be none for user interest fields,
-                "reason": "here you have to give your reasons for whatever inference you gave along with latest user input. example - i am giving inference for destination to be tokyo as the user mentioned tokyo in this latest input ie. 'i wish to to to tokyo' and if you are leaving the inference empty then state why so",
-                "internet_search_required": "if the user's laset input is asking something that you think you will be able to answer better if you have the internet search results, otherwise if user is conversing normally and you dont need the the internet search result then set to its default value which is false",
-                "online_search_query": "if you decide to 'internet_search_required': true , ie if you decide that you want internet search result then here kive the specific query you need me to search online and give you the result when making this gpt call again for better response"
-
+                "reason": "here you have to give your reasons for whatever inference you gave along with latest user input. example - i am giving inference for destination to be tokyo as the user mentioned tokyo in this latest input ie. 'i wish to to to tokyo' and if you are leaving the inference empty then state why so"
             }}
 
             also you can give inferences even for a one word answer based on the context from the chat_hist0ry
@@ -583,29 +589,45 @@ def call_openai_api(chat_history, current_json):
 
             just give me the json structured output nothing else
 
+            you have to answer every user query unless it is entirely on a different domain than the or travel use case. for example you have to answer if user asks you to find the hotels, flights, routes, or if he asks about what is the current time or any travel related news. under any circumstances you have to answer that
 
-            also if the user is not asking something that is not relevant to our travel planning they dont give answer to that query (important) just say that 'please stick to travel related query only' to the user
+            if the user is asking something that is not related to travel then you dont need to preform internet search as it is not in our domain
+
             """
-
-
-    # Define the prompt template
-    prompt = PromptTemplate(
-        template="""Answer the user query.\n{query}\n""",
-        input_variables=["query"],
-        partial_variables={"format_instructions": parser.get_format_instructions()},
-    )
-
-    # Create the LLMChain
-    chain = prompt | model | parser
-
-    # Prepare the input for the chain
-    input_data = {
-        "query":query
-    }
-
-    # Invoke the chain
-    response = chain.invoke({"query":query})
     
+    internet = gpt_call_with_internet_search(user_input, current_json)
+    print("*****************",internet,"***************")
+    print("=====================================================")
+
+    if internet['internet_search_required']:
+    # Define the prompt template
+        print("=====================================================")
+        online_search_query = internet['online_search_query']
+        search_results = search.run(online_search_query)
+        print("here is the online data   :   ", search_results)
+        prompt = PromptTemplate(
+            template="""Answer the user query.\n{query}\n\n\n\n    below is the internet search results for the query {online_search_query} so kindly use it as a knowledge context only , Remember this is not the user's reply so do not include any inference from the below text at any cost (most important \n\n\n\n  {search_results}) \n\n Remember you have to give a detailed answer to the user's query using the above data. if you cannot answer or if the data is for internet search is not sufficient just say "i data from internet is not sufficient to answer that query" answer the query no matter what  """,
+            input_variables=["query"],
+            partial_variables={"format_instructions": parser.get_format_instructions()},
+        )
+        chain = prompt | model | parser
+        response = chain.invoke({"query":query, "search_results":search_results, "online_search_query":online_search_query })
+
+    else:
+        prompt = PromptTemplate(
+            template="""Answer the user query.\n{query}\n""",
+            input_variables=["query"],
+            partial_variables={"format_instructions": parser.get_format_instructions()},
+        )
+
+
+            # Create the LLMChain
+        chain = prompt | model | parser
+
+
+        # Invoke the chain
+        response = chain.invoke({"query":query})
+        
     
     # Convert response to dictionary
     print(chat_history[-1],"     response:", json.dumps(response, indent=4))
@@ -618,39 +640,6 @@ def call_openai_api(chat_history, current_json):
                 current_json[update["field_name"]] = list(set(current_json["destination"].append(update["answer"])  ))
             else:
                 current_json[update["field_name"]] = update["answer"]
-
-
-
-    if response['internet_search_required']:
-        online_search_query = response['online_search_query']
-        if online_search_query:
-            print("|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||")
-            search_results = search.run(online_search_query)
-            # Define the prompt template
-            prompt = PromptTemplate(
-                template="""Answer the user query, also use the context info (ie the internet search results that i am providing you already so dont ask for it again) if required and give a very detailed length answer to the user.\n contest info :{search_results}\n\n{query}\n""",
-                input_variables=["query"],
-                partial_variables={"format_instructions": parser.get_format_instructions()},
-            )
-
-            # Create the LLMChain
-            chain = prompt | model | parser
-
-            # Prepare the input for the chain
-            input_data = {
-                "query":query,
-                "search_results":search_results
-            }
-
-            # Invoke the chain
-            response = chain.invoke({"query":query, "search_results":search_results})
-            print(chat_history[-1],"     response:", json.dumps(response, indent=4))
-            updated_json = response
-            # print(search_results)
-            print("|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||")
-            # Perform online search using DuckDuckGoSearchRun
-            # search_results = search.run(online_search_query)
-
 
 
     return unflatten_json(current_json), updated_json.get("next_reply", ""), get_options(updated_json.get("metadata", ""))
@@ -807,6 +796,68 @@ def get_options(field_name):
         return options_list[field_name]
     else:
         return []
+
+
+
+
+
+
+
+
+
+
+# Function to handle GPT calls with internet search capability
+def gpt_call_with_internet_search(chat_history: str, current_json: Dict) -> Dict:
+    # Set up the parser
+    parser = JsonOutputParser(pydantic_object=InternetSearchRequired)
+
+    # Set up the prompt template
+    prompt = PromptTemplate(
+        template="see if the user query can me answered by using gpt-4, if not then we can perform an internet search and provide gpt-4 with that internet search result realtime data , for example this can be used to answer any query if the llm needs internet data to answer it better. \n{format_instructions}\nquery: {query}.\n\n\n\n    if the search is required then give detailed online_search_query that will fetch desired response\n",
+        input_variables=["query"],
+        partial_variables={"format_instructions": parser.get_format_instructions()},
+    )
+
+    # Set up the model
+    model = ChatOpenAI(api_key=openai_api_key, temperature=0, model_name="gpt-4o-mini")
+
+    # Create the chain
+    chain = prompt | model | parser
+
+    # Create the query including chat history
+    query_with_history = f"""
+        You are a travel assistant chatbot named Travel.AI. Your task is to determine if an internet search is needed to better answer the latest question asked by the user based on the provided chat history 
+
+        Chat history:
+        {chat_history}
+
+        Your output JSON should follow this structure:
+
+        {{
+            "internet_search_required": "true if needed for better answers, otherwise false",
+            "online_search_query": "specific query for an internet search if needed"
+        }}
+        see if the user query can me answered by using gpt-4, if not then we can perform an internet search and provide gpt-4 with that internet search result realtime data , for example this can be used to answer the date.
+        if the search is required then give efficient and detailed online_search_query that will fetch desired response
+
+        if the user is not saying time zone then by default take it as indian standard time
+        
+
+        if the user is asking something that is not related to travel then you dont need to preform internet search as it is not in our domain
+    """
+
+    # query_with_history = 
+
+    # Perform the GPT call
+    response = chain.invoke({"query": chat_history})
+
+    return response
+
+
+
+
+
+
 
 
 if __name__ == '__main__':
